@@ -19,6 +19,14 @@ export type Repository = {
 
 export type ScanRunner = "local" | "actions";
 
+export type RemediationRecord = {
+  packageName: string;
+  installedVersion: string;
+  vulnerabilityId: string;
+  fixedVersion: string | null;
+  advice: string;
+};
+
 export type ScanRecord = {
   id: string;
   repositoryId: string;
@@ -31,6 +39,8 @@ export type ScanRecord = {
   error: string | null;
   warnings: string[];
   findings: Finding[];
+  /** Stored fix advice. Absent only on records built in tests. */
+  remediations?: RemediationRecord[];
 };
 
 export type ComparedFinding = Finding & {
@@ -229,28 +239,32 @@ export function buildReport(repository: Repository, scan: ScanRecord, previous: 
         ? { ...countStatuses(findings), previousScanId: previous.id }
         : null,
     findings,
-    fixAdvice: fixAdvice(scan.findings),
+    fixAdvice: scan.remediations ? scan.remediations.map((item) => item.advice) : fixAdvice(scan.findings),
   };
 }
 
-export function fixAdvice(findings: Finding[]): string[] {
-  const lines: string[] = [];
+export function buildRemediations(findings: Finding[]): RemediationRecord[] {
+  const rows: RemediationRecord[] = [];
   const seen = new Set<string>();
   for (const finding of findings) {
     const key = `${finding.packageName}@${finding.installedVersion}:${finding.vulnerabilityId}:${finding.fixedVersion ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    if (finding.fixedVersion) {
-      lines.push(
-        `Upgrade ${finding.packageName} from ${finding.installedVersion} to ${finding.fixedVersion} or newer to fix ${finding.vulnerabilityId}.`,
-      );
-    } else {
-      lines.push(
-        `No fixed version was reported for ${finding.packageName}@${finding.installedVersion} (${finding.vulnerabilityId}). Review the advisory before shipping.`,
-      );
-    }
+    rows.push({
+      packageName: finding.packageName,
+      installedVersion: finding.installedVersion,
+      vulnerabilityId: finding.vulnerabilityId,
+      fixedVersion: finding.fixedVersion ?? null,
+      advice: finding.fixedVersion
+        ? `Upgrade ${finding.packageName} from ${finding.installedVersion} to ${finding.fixedVersion} or newer to fix ${finding.vulnerabilityId}.`
+        : `No fixed version was reported for ${finding.packageName}@${finding.installedVersion} (${finding.vulnerabilityId}). Review the advisory before shipping.`,
+    });
   }
-  return lines;
+  return rows;
+}
+
+export function fixAdvice(findings: Finding[]): string[] {
+  return buildRemediations(findings).map((item) => item.advice);
 }
 
 function countSeverities(findings: Finding[]): SeverityCounts {

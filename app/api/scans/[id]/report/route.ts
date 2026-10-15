@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { buildReport, previousCompletedScan } from "@/lib/domain";
 import { jsonError } from "@/lib/http";
 import { renderScanPdf } from "@/lib/reports/pdf";
-import { getStore } from "@/lib/store/json-store";
+import { getStore } from "@/lib/store";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   await connection();

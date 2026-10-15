@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { repositoryLabel, summarize } from "@/lib/domain";
 import { jsonOk } from "@/lib/http";
 import { reconcileOrphans } from "@/lib/scans/runner";
-import { getStore } from "@/lib/store/json-store";
+import { getStore } from "@/lib/store";
 
 export async function GET() {
   await connection();

@@ -4,7 +4,7 @@ import type { ScanRecord } from "@/lib/domain";
 import { SEVERITIES, type Finding, type ScanError, type ScanErrorSource, type ScanResult, type Severity } from "@/lib/scanner/types";
 import { applyScannerResult, failScan, markScanRunning } from "@/lib/scans/finish";
 import { releaseScanJob } from "@/lib/scans/jobs";
-import { getStore } from "@/lib/store/json-store";
+import { getStore } from "@/lib/store";
 
 const ERROR_SOURCES: ScanErrorSource[] = ["npm-audit", "osv", "input"];
 const MAX_FINDINGS = 5000;

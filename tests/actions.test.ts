@@ -1,11 +1,8 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { afterAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-const storeDir = await mkdtemp(path.join(tmpdir(), "securerepo-actions-"));
-process.env.SECUREREPO_STORE = path.join(storeDir, "store.json");
 process.env.SECUREREPO_SCAN_DELAY_MS = "0";
 process.env.SECUREREPO_CALLBACK_SECRET = "test-secret";
 
@@ -14,11 +11,15 @@ const { acceptScanCallback, authorizeCallback, callbackEndpoint, isPublicCallbac
   "@/lib/scans/callback"
 );
 const { dispatchSecurityScan } = await import("@/lib/github/dispatch-workflow");
-const { getStore } = await import("@/lib/store/json-store");
+const { disconnectStore, getStore, resetStore } = await import("@/lib/store");
 
 describe("GitHub Actions scan", () => {
+  beforeAll(async () => {
+    await resetStore();
+  });
+
   afterAll(async () => {
-    await rm(storeDir, { recursive: true, force: true });
+    await disconnectStore();
   });
 
   it("keeps the workflow file on fixed commands", async () => {

@@ -3,7 +3,7 @@ import { connection } from "next/server";
 import { repositoryLabel } from "@/lib/domain";
 import { jsonError, jsonOk } from "@/lib/http";
 import { addGitHubRepository, reconcileOrphans } from "@/lib/scans/runner";
-import { getStore } from "@/lib/store/json-store";
+import { getStore } from "@/lib/store";
 
 export async function GET() {
   await connection();

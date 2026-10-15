@@ -1,0 +1,71 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Repository {
+  id        String   @id
+  kind      String
+  owner     String
+  name      String
+  url       String
+  createdAt DateTime
+  scans     Scan[]
+
+  @@index([kind, name])
+}
+
+model Scan {
+  id           String                 @id
+  repositoryId String
+  repository   Repository             @relation(fields: [repositoryId], references: [id], onDelete: Cascade)
+  status       String
+  runner       String                 @default("local")
+  createdAt    DateTime
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  error        String?
+  warnings     String[]               @default([])
+  findings     VulnerabilityFinding[]
+  remediations Remediation[]
+
+  @@index([repositoryId])
+  @@index([createdAt])
+}
+
+model VulnerabilityFinding {
+  id               String  @id
+  scanId           String
+  scan             Scan    @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  position         Int
+  packageName      String
+  installedVersion String
+  vulnerabilityId  String
+  severity         String
+  cvssScore        Float?
+  fixedVersion     String?
+  source           String
+
+  @@unique([scanId, position])
+  @@index([scanId])
+  @@index([packageName])
+  @@index([vulnerabilityId])
+}
+
+model Remediation {
+  id               String  @id
+  scanId           String
+  scan             Scan    @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  position         Int
+  packageName      String
+  installedVersion String
+  vulnerabilityId  String
+  fixedVersion     String?
+  advice           String
+
+  @@unique([scanId, position])
+  @@index([scanId])
+}

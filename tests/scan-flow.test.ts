@@ -1,19 +1,17 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { afterAll, describe, expect, it } from "vitest";
-
-const storeDir = await mkdtemp(path.join(tmpdir(), "securerepo-store-"));
-process.env.SECUREREPO_STORE = path.join(storeDir, "store.json");
 process.env.SECUREREPO_SCAN_DELAY_MS = "0";
 
 const { addGitHubRepository, startFixtureScan } = await import("@/lib/scans/runner");
-const { getStore } = await import("@/lib/store/json-store");
+const { disconnectStore, getStore, resetStore } = await import("@/lib/store");
 
 describe("saved scans", () => {
+  beforeAll(async () => {
+    await resetStore();
+  });
+
   afterAll(async () => {
-    await rm(storeDir, { recursive: true, force: true });
+    await disconnectStore();
   });
 
   it("rejects a duplicate GitHub repository", async () => {
@@ -34,6 +32,8 @@ describe("saved scans", () => {
     expect(finished.findings.length).toBeGreaterThan(0);
     expect(finished.findings.every((finding) => finding.packageName === "lodash")).toBe(true);
     expect(finished.findings.every((finding) => finding.installedVersion === "4.17.20")).toBe(true);
+    expect(finished.remediations?.length).toBeGreaterThan(0);
+    expect(finished.remediations?.[0]?.advice).toContain("Upgrade lodash");
   });
 });
 

@@ -13,7 +13,18 @@ The scanner in `lib/scanner` does not depend on the UI. It reads `package.json` 
 - When a repository has two completed scans, the later scan marks a finding **fixed** only if that vulnerability id is no longer present on that package. The other rows are **new** or **still open**.
 - Finished scans can be downloaded as JSON or PDF. The PDF includes the repository, date, status, summary, findings, and fix advice.
 
-Saved repositories and scans live in `data/store.json`. That file is local and gitignored. A hosted Postgres database comes next.
+Saved repositories, scans, findings, and remediation advice live in PostgreSQL through Prisma. The models are `Repository`, `Scan`, `VulnerabilityFinding`, and `Remediation`.
+
+## Database
+
+Copy `.env.example` to `.env` and set `DATABASE_URL` plus `POSTGRES_PASSWORD`. Do not commit `.env`.
+
+```bash
+docker compose up -d
+npx prisma migrate deploy
+```
+
+`docker-compose.yml` starts Postgres and reads the password from the environment. There is no seed script.
 
 ## GitHub Actions
 
@@ -49,4 +60,4 @@ Opening that server at `http://127.0.0.1:43123` is allowed in `next.config.ts` (
 npm test
 ```
 
-The vulnerable-fixture test runs `npm audit` and calls the OSV API, so it needs network access. Assertions check the shape of real findings and do not hard-code advisory ids.
+The vulnerable-fixture test runs `npm audit` and calls the OSV API, so it needs network access. Store tests use the `DATABASE_URL` database with `_test` appended to the name, so apply migrations there too. Assertions check the shape of real findings and do not hard-code advisory ids.

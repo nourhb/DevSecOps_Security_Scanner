@@ -6,12 +6,12 @@ import path from "node:path";
 import type { Repository, ScanRecord, ScanRunner } from "@/lib/domain";
 import { dispatchSecurityScan, type WorkflowDispatchInput } from "@/lib/github/dispatch-workflow";
 import { fetchGitHubManifests } from "@/lib/github/fetch-manifests";
-import { parseGitHubRepoUrl, sameGitHubRepo } from "@/lib/github/parse-url";
+import { parseGitHubRepoUrl } from "@/lib/github/parse-url";
 import { scanDirectory } from "@/lib/scanner";
 import { isPublicCallbackUrl } from "@/lib/scans/callback";
 import { applyScannerResult, failScan, markScanRunning } from "@/lib/scans/finish";
 import { actionsTimeoutMs, activeJobs, releaseScanJob, trackActionsScan, trackLocalScan } from "@/lib/scans/jobs";
-import { getStore } from "@/lib/store/json-store";
+import { getStore } from "@/lib/store";
 
 const FIXTURE_NAMES = ["clean", "vulnerable"] as const;
 type FixtureName = (typeof FIXTURE_NAMES)[number];
@@ -33,14 +33,7 @@ export async function addGitHubRepository(
     createdAt: new Date().toISOString(),
   };
 
-  const saved = await getStore().transaction((data) => {
-    const existing = data.repositories.find(
-      (item) => item.kind === "github" && sameGitHubRepo(item, repository),
-    );
-    if (existing) return existing;
-    data.repositories.push(repository);
-    return repository;
-  });
+  const saved = await getStore().saveGitHubRepository(repository);
 
   if (saved.id !== repository.id) {
     return { ok: false, error: "That repository is already saved.", status: 409 };
@@ -111,12 +104,7 @@ async function ensureFixture(name: FixtureName): Promise<Repository> {
     url: "",
     createdAt: new Date().toISOString(),
   };
-  return getStore().transaction((data) => {
-    const existing = data.repositories.find((repository) => repository.kind === "fixture" && repository.name === name);
-    if (existing) return existing;
-    data.repositories.push(created);
-    return created;
-  });
+  return getStore().saveFixtureRepository(created);
 }
 
 async function enqueue(
@@ -147,15 +135,7 @@ async function insertPending(
     findings: [],
   };
 
-  const result = await getStore().transaction((data) => {
-    const busy = data.scans.some(
-      (item) =>
-        item.repositoryId === repository.id && (item.status === "pending" || item.status === "running"),
-    );
-    if (busy) return null;
-    data.scans.push(scan);
-    return scan;
-  });
+  const result = await getStore().insertScanIfIdle(scan);
 
   if (!result) {
     return { ok: false, error: "A scan is already running for this repository.", status: 409 };

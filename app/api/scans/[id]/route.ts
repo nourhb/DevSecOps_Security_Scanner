@@ -2,7 +2,7 @@ import { connection } from "next/server";
 
 import { buildReport, previousCompletedScan } from "@/lib/domain";
 import { jsonError, jsonOk } from "@/lib/http";
-import { getStore } from "@/lib/store/json-store";
+import { getStore } from "@/lib/store";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   await connection();

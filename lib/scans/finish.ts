@@ -1,7 +1,7 @@
 import type { ScanRecord } from "@/lib/domain";
 import { scannerWarnings } from "@/lib/domain";
 import type { ScanResult } from "@/lib/scanner/types";
-import { getStore } from "@/lib/store/json-store";
+import { getStore } from "@/lib/store";
 
 function isOpen(scan: ScanRecord): boolean {
   return scan.status === "pending" || scan.status === "running";
