@@ -1,0 +1,9 @@
+{
+  "name": "securerepo-vulnerable-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fixture that pins lodash 4.17.20, which has published advisories.",
+  "dependencies": {
+    "lodash": "4.17.20"
+  }
+}
