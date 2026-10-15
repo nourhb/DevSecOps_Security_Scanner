@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 
-import { findingStatusLabel, formatWhen, type FindingStatus, type ScanReport } from "@/lib/domain";
+import { findingStatusLabel, formatWhen, scanRunnerLabel, type FindingStatus, type ScanReport } from "@/lib/domain";
 import type { Severity } from "@/lib/scanner/types";
 import { buttonVariants } from "@/components/ui/button";
 import { FindingStatusBadge, ScanStatusBadge, SeverityBadge } from "@/components/status-badge";
@@ -70,7 +70,10 @@ export function ScanView({ id }: { id: string }) {
         </Link>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-2xl font-semibold tracking-tight">Scan</h1>
-          <ScanStatusBadge status={report.scan.status} />
+          <div className="flex flex-wrap items-center gap-2">
+            <ScanStatusBadge status={report.scan.status} />
+            <span className="text-sm text-muted-foreground">{scanRunnerLabel(report.scan.runner)}</span>
+          </div>
         </div>
         <p className="text-sm text-muted-foreground">
           Started {formatWhen(report.scan.startedAt ?? report.scan.createdAt)}
@@ -84,15 +87,24 @@ export function ScanView({ id }: { id: string }) {
       </div>
 
       {report.scan.status === "pending" ? (
-        <Notice title="Pending" body="The scan is queued. Status will change to Running when npm audit and OSV start." />
+        <Notice
+          title="Pending"
+          body={
+            report.scan.runner === "actions"
+              ? "GitHub Actions is queued. Status changes to Running when the workflow checks out the repository."
+              : "The scan is queued. Status will change to Running when npm audit and OSV start."
+          }
+        />
       ) : null}
       {report.scan.status === "running" ? (
         <Notice
           title="Running"
           body={
-            report.repository.kind === "github"
-              ? "Downloading package.json and package-lock.json from the GitHub API, then running npm audit and OSV."
-              : "Running npm audit and checking the same packages against OSV."
+            report.scan.runner === "actions"
+              ? "The workflow is checking out the repository, then running npm audit and OSV."
+              : report.repository.kind === "github"
+                ? "Downloading package.json and package-lock.json from the GitHub API, then running npm audit and OSV."
+                : "Running npm audit and checking the same packages against OSV."
           }
         />
       ) : null}
@@ -102,8 +114,11 @@ export function ScanView({ id }: { id: string }) {
           <p className="mt-1 text-sm leading-6">{report.scan.error ?? "The scan failed."}</p>
         </div>
       ) : null}
-      {report.scan.warnings.length > 0 && report.scan.status === "completed" ? (
-        <Notice title="Completed with warnings" body={report.scan.warnings.join(" ")} />
+      {report.scan.warnings.length > 0 ? (
+        <Notice
+          title={report.scan.status === "completed" ? "Completed with warnings" : "Note"}
+          body={report.scan.warnings.join(" ")}
+        />
       ) : null}
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

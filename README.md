@@ -8,12 +8,18 @@ The scanner in `lib/scanner` does not depend on the UI. It reads `package.json` 
 
 - **Dashboard** (`/`) shows total findings, the critical and high count, packages affected, and the last scan time and status.
 - **Repositories** (`/repos`) adds a public `github.com` URL. The same repository cannot be saved twice. The clean and vulnerable fixtures can be scanned from this page.
-- **Repository** (`/repos/[id]`) starts a scan and lists earlier runs.
-- **Scan** (`/scans/[id]`) shows Pending, Running, Completed, or Failed. For a GitHub repository, the scan downloads `package.json` and `package-lock.json` from the public GitHub API, writes them to a temporary directory, and runs the scanner. The findings table lists package, version, vulnerability id, severity, fixed version, and source. Filters cover severity, package, vulnerability id, and status (new, still open, fixed).
+- **Repository** (`/repos/[id]`) starts a scan and lists earlier runs. **Run GitHub Actions scan** dispatches `.github/workflows/security-scan.yml` for a public GitHub repository. If Actions cannot be dispatched, the same scanner runs in the app and the page still shows Pending, Running, Completed, or Failed.
+- **Scan** (`/scans/[id]`) shows Pending, Running, Completed, or Failed, and whether the run is GitHub Actions or this app. For a GitHub repository, a local scan downloads `package.json` and `package-lock.json` from the public GitHub API, writes them to a temporary directory, and runs the scanner. The findings table lists package, version, vulnerability id, severity, fixed version, and source. Filters cover severity, package, vulnerability id, and status (new, still open, fixed).
 - When a repository has two completed scans, the later scan marks a finding **fixed** only if that vulnerability id is no longer present on that package. The other rows are **new** or **still open**.
 - Finished scans can be downloaded as JSON or PDF. The PDF includes the repository, date, status, summary, findings, and fix advice.
 
-Saved repositories and scans live in `data/store.json`. That file is local and gitignored. GitHub Actions and a hosted Postgres database come next.
+Saved repositories and scans live in `data/store.json`. That file is local and gitignored. A hosted Postgres database comes next.
+
+## GitHub Actions
+
+`.github/workflows/security-scan.yml` runs when someone dispatches it with a public repository URL, a scan id, and this app's base URL. The workflow checks out that repository, runs the scanner in `lib/scanner`, and POSTs the normalized findings to `/api/scans/<scan id>/results`. The request uses `Authorization: Bearer` with `SECUREREPO_CALLBACK_SECRET`. Put that name in the GitHub Actions secret store and in a local `.env` copied from `.env.example`. Do not commit the value.
+
+From a repository page, choose **Run GitHub Actions scan**. The app dispatches the workflow when `SECUREREPO_GITHUB_TOKEN` is set and `SECUREREPO_CALLBACK_URL` is a public URL GitHub can reach. Otherwise it runs the scanner in this process and says so on the scan page.
 
 ## Install
 

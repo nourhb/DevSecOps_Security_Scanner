@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { formatWhen, type ScanStatus } from "@/lib/domain";
+import { formatWhen, scanRunnerLabel, type ScanRunner, type ScanStatus } from "@/lib/domain";
 import { ScanStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +33,7 @@ type RepoDetailResponse = {
     finishedAt: string | null;
     error: string | null;
     findingCount: number;
+    runner: ScanRunner;
   }>;
 };
 
@@ -43,14 +44,16 @@ function shouldPollRepo(body: RepoDetailResponse) {
 export function RepoDetail({ id }: { id: string }) {
   const router = useRouter();
   const { data, error, loading, retry } = useLiveJson<RepoDetailResponse>(`/api/repos/${id}`, shouldPollRepo);
-  const [starting, setStarting] = useState(false);
+  const [starting, setStarting] = useState<"local" | "actions" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  async function startScan() {
+  async function startScan(kind: "local" | "actions") {
     setActionError(null);
-    setStarting(true);
+    setStarting(kind);
     try {
-      const response = await fetch(`/api/repos/${id}/scans`, { method: "POST" });
+      const response = await fetch(kind === "actions" ? `/api/repos/${id}/actions` : `/api/repos/${id}/scans`, {
+        method: "POST",
+      });
       const body = (await response.json().catch(() => null)) as { error?: string; scan?: { id: string } } | null;
       if (!response.ok || !body?.scan) {
         setActionError(body?.error ?? "The scan did not start.");
@@ -60,7 +63,7 @@ export function RepoDetail({ id }: { id: string }) {
     } catch {
       setActionError("The request failed before the scan started.");
     } finally {
-      setStarting(false);
+      setStarting(null);
     }
   }
 
@@ -99,9 +102,17 @@ export function RepoDetail({ id }: { id: string }) {
             This is a local fixture. Scanning it does not call GitHub.
           </p>
         )}
+        <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
+          Run GitHub Actions scan asks GitHub to check out this repository, run the scanner, and post findings back.
+          If Actions cannot be dispatched, the same scanner runs here and the status still moves through Pending,
+          Running, Completed, or Failed.
+        </p>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <Button type="button" disabled={starting || busy} onClick={startScan}>
-            {starting ? "Starting scan…" : busy ? "Scan in progress" : "Start scan"}
+          <Button type="button" disabled={starting !== null || busy} onClick={() => startScan("local")}>
+            {starting === "local" ? "Starting scan…" : busy ? "Scan in progress" : "Start scan"}
+          </Button>
+          <Button type="button" variant="outline" disabled={starting !== null || busy} onClick={() => startScan("actions")}>
+            {starting === "actions" ? "Starting Actions scan…" : "Run GitHub Actions scan"}
           </Button>
           {actionError ? (
             <p role="alert" className="text-sm text-destructive">
@@ -121,6 +132,7 @@ export function RepoDetail({ id }: { id: string }) {
               <TableRow>
                 <TableHead>When</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Runner</TableHead>
                 <TableHead>Findings</TableHead>
                 <TableHead>Open</TableHead>
               </TableRow>
@@ -132,6 +144,7 @@ export function RepoDetail({ id }: { id: string }) {
                   <TableCell>
                     <ScanStatusBadge status={scan.status} />
                   </TableCell>
+                  <TableCell>{scanRunnerLabel(scan.runner)}</TableCell>
                   <TableCell>{scan.status === "completed" ? scan.findingCount : "—"}</TableCell>
                   <TableCell>
                     <Link href={`/scans/${scan.id}`} className="font-medium underline-offset-4 hover:underline">

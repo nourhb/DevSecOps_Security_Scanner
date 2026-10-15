@@ -17,10 +17,14 @@ export type Repository = {
   createdAt: string;
 };
 
+export type ScanRunner = "local" | "actions";
+
 export type ScanRecord = {
   id: string;
   repositoryId: string;
   status: ScanStatus;
+  /** Where the scanner process ran. Missing records ran in this app. */
+  runner?: ScanRunner;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -38,6 +42,10 @@ export type StatusCounts = {
   open: number;
   fixed: number;
 };
+
+export function scanRunnerLabel(runner: ScanRunner | undefined): string {
+  return runner === "actions" ? "GitHub Actions" : "This app";
+}
 
 export function scanStatusLabel(status: ScanStatus): string {
   switch (status) {
@@ -170,6 +178,7 @@ export type ScanReport = {
     createdAt: string;
     startedAt: string | null;
     finishedAt: string | null;
+    runner: ScanRunner;
     error: string | null;
     warnings: string[];
   };
@@ -205,6 +214,7 @@ export function buildReport(repository: Repository, scan: ScanRecord, previous: 
       createdAt: scan.createdAt,
       startedAt: scan.startedAt,
       finishedAt: scan.finishedAt,
+      runner: scan.runner ?? "local",
       error: scan.error,
       warnings: scan.warnings,
     },

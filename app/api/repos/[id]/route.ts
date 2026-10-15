@@ -23,6 +23,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
       finishedAt: scan.finishedAt,
       error: scan.error,
       findingCount: scan.findings.length,
+      runner: scan.runner ?? "local",
     })),
   });
 }

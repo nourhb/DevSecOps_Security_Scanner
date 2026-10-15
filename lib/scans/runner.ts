@@ -3,24 +3,20 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-import type { Repository, ScanRecord } from "@/lib/domain";
-import { scannerWarnings } from "@/lib/domain";
+import type { Repository, ScanRecord, ScanRunner } from "@/lib/domain";
+import { dispatchSecurityScan, type WorkflowDispatchInput } from "@/lib/github/dispatch-workflow";
 import { fetchGitHubManifests } from "@/lib/github/fetch-manifests";
 import { parseGitHubRepoUrl, sameGitHubRepo } from "@/lib/github/parse-url";
 import { scanDirectory } from "@/lib/scanner";
+import { isPublicCallbackUrl } from "@/lib/scans/callback";
+import { applyScannerResult, failScan, markScanRunning } from "@/lib/scans/finish";
+import { actionsTimeoutMs, activeJobs, releaseScanJob, trackActionsScan, trackLocalScan } from "@/lib/scans/jobs";
 import { getStore } from "@/lib/store/json-store";
 
 const FIXTURE_NAMES = ["clean", "vulnerable"] as const;
 type FixtureName = (typeof FIXTURE_NAMES)[number];
 
-type JobGlobal = { active?: Set<string> };
-
-function activeJobs(): Set<string> {
-  const root = globalThis as typeof globalThis & { __securerepoJobs?: JobGlobal };
-  root.__securerepoJobs ??= {};
-  root.__securerepoJobs.active ??= new Set();
-  return root.__securerepoJobs.active;
-}
+type DispatchFn = (input: WorkflowDispatchInput) => Promise<{ ok: true } | { ok: false; message: string }>;
 
 export async function addGitHubRepository(
   url: string,
@@ -57,7 +53,29 @@ export async function startRepositoryScan(
 ): Promise<{ ok: true; scan: ScanRecord } | { ok: false; error: string; status: number }> {
   const repository = await getStore().getRepository(repositoryId);
   if (!repository) return { ok: false, error: "That repository is not saved.", status: 404 };
-  return enqueue(repository);
+  return enqueue(repository, "local");
+}
+
+export async function startActionsScan(
+  repositoryId: string,
+  options?: { callbackUrl?: string | null; dispatch?: DispatchFn },
+): Promise<{ ok: true; scan: ScanRecord } | { ok: false; error: string; status: number }> {
+  const repository = await getStore().getRepository(repositoryId);
+  if (!repository) return { ok: false, error: "That repository is not saved.", status: 404 };
+
+  const enqueued = await insertPending(repository, "actions");
+  if (!enqueued.ok) return enqueued;
+
+  const decision = await dispatchOrExplain(repository, enqueued.scan.id, options);
+  if (decision.dispatched) {
+    trackActionsScan(enqueued.scan.id);
+    return enqueued;
+  }
+
+  await getStore().updateScan(enqueued.scan.id, { runner: "local", warnings: [decision.message] });
+  scheduleLocal(enqueued.scan.id, repository);
+  const updated = await getStore().getScan(enqueued.scan.id);
+  return { ok: true, scan: updated ?? enqueued.scan };
 }
 
 export async function startFixtureScan(
@@ -67,7 +85,7 @@ export async function startFixtureScan(
     return { ok: false, error: "Choose the clean or vulnerable fixture.", status: 400 };
   }
   const repository = await ensureFixture(name);
-  return enqueue(repository);
+  return enqueue(repository, "local");
 }
 
 export async function reconcileOrphans(): Promise<void> {
@@ -78,12 +96,9 @@ export async function reconcileOrphans(): Promise<void> {
     if (scan.status !== "pending" && scan.status !== "running") continue;
     if (active.has(scan.id)) continue;
     const created = new Date(scan.createdAt).getTime();
-    if (Number.isNaN(created) || now - created < 1500) continue;
-    await getStore().updateScan(scan.id, {
-      status: "failed",
-      finishedAt: new Date().toISOString(),
-      error: "This scan stopped before it finished. Start it again.",
-    });
+    const limit = scan.runner === "actions" ? actionsTimeoutMs() : 1500;
+    if (Number.isNaN(created) || now - created < limit) continue;
+    await failScan(scan.id, "This scan stopped before it finished. Start it again.");
   }
 }
 
@@ -106,12 +121,24 @@ async function ensureFixture(name: FixtureName): Promise<Repository> {
 
 async function enqueue(
   repository: Repository,
+  runner: ScanRunner,
+): Promise<{ ok: true; scan: ScanRecord } | { ok: false; error: string; status: number }> {
+  const inserted = await insertPending(repository, runner);
+  if (!inserted.ok) return inserted;
+  scheduleLocal(inserted.scan.id, repository);
+  return inserted;
+}
+
+async function insertPending(
+  repository: Repository,
+  runner: ScanRunner,
 ): Promise<{ ok: true; scan: ScanRecord } | { ok: false; error: string; status: number }> {
   await reconcileOrphans();
   const scan: ScanRecord = {
     id: randomUUID(),
     repositoryId: repository.id,
     status: "pending",
+    runner,
     createdAt: new Date().toISOString(),
     startedAt: null,
     finishedAt: null,
@@ -133,47 +160,57 @@ async function enqueue(
   if (!result) {
     return { ok: false, error: "A scan is already running for this repository.", status: 409 };
   }
-
-  activeJobs().add(scan.id);
-  setTimeout(() => {
-    void execute(scan.id, repository).finally(() => activeJobs().delete(scan.id));
-  }, scanDelayMs());
   return { ok: true, scan };
 }
 
+function scheduleLocal(scanId: string, repository: Repository): void {
+  trackLocalScan(scanId);
+  setTimeout(() => {
+    void execute(scanId, repository).finally(() => releaseScanJob(scanId));
+  }, scanDelayMs());
+}
+
+async function dispatchOrExplain(
+  repository: Repository,
+  scanId: string,
+  options: { callbackUrl?: string | null; dispatch?: DispatchFn } | undefined,
+): Promise<{ dispatched: true } | { dispatched: false; message: string }> {
+  if (repository.kind !== "github" || !repository.url) {
+    return {
+      dispatched: false,
+      message: "GitHub Actions checks out a public GitHub repository. This scan is running in this app instead.",
+    };
+  }
+
+  const callbackUrl = options?.callbackUrl?.trim() ?? "";
+  if (!isPublicCallbackUrl(callbackUrl)) {
+    return {
+      dispatched: false,
+      message: "GitHub Actions cannot reach this app to post findings, so this scan is running in this app instead.",
+    };
+  }
+
+  const dispatch = options?.dispatch ?? dispatchSecurityScan;
+  const result = await dispatch({ repositoryUrl: repository.url, scanId, callbackUrl });
+  if (!result.ok) {
+    return {
+      dispatched: false,
+      message: `GitHub Actions was not started (${result.message}). This scan is running in this app instead.`,
+    };
+  }
+  return { dispatched: true };
+}
+
 async function execute(scanId: string, repository: Repository): Promise<void> {
-  const store = getStore();
-  await store.updateScan(scanId, { status: "running", startedAt: new Date().toISOString() });
+  await markScanRunning(scanId);
   let tempDir: string | null = null;
   try {
     const directory = await materialize(repository);
     tempDir = directory.tempDir;
     const result = await scanDirectory(directory.scanDir);
-    const warnings = scannerWarnings(result.errors);
-    if (result.findings.length === 0 && warnings.length > 0) {
-      await store.updateScan(scanId, {
-        status: "failed",
-        finishedAt: new Date().toISOString(),
-        error: warnings.join(" "),
-        warnings,
-        findings: [],
-      });
-      return;
-    }
-    await store.updateScan(scanId, {
-      status: "completed",
-      finishedAt: new Date().toISOString(),
-      error: null,
-      warnings,
-      findings: result.findings,
-    });
+    await applyScannerResult(scanId, result);
   } catch (error) {
-    await store.updateScan(scanId, {
-      status: "failed",
-      finishedAt: new Date().toISOString(),
-      error: error instanceof Error && error.message ? error.message : "The scan failed.",
-      findings: [],
-    });
+    await failScan(scanId, error instanceof Error && error.message ? error.message : "The scan failed.");
   } finally {
     if (tempDir) await rm(tempDir, { recursive: true, force: true });
   }
