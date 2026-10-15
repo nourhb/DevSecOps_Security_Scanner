@@ -1,0 +1,6 @@
+{
+  "name": "securerepo-clean-fixture",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fixture with no dependencies. Used to confirm the scanner returns an empty finding list."
+}

@@ -1,0 +1,67 @@
+name: Security scan
+
+# Repository URL, scan id, and callback URL are passed as environment
+# variables. The run scripts below are fixed and never interpolate those values.
+on:
+  workflow_dispatch:
+    inputs:
+      repository:
+        description: Public GitHub repository URL
+        required: true
+        type: string
+      scan_id:
+        description: SecureRepo scan id
+        required: true
+        type: string
+      callback_url:
+        description: Base URL of the SecureRepo app that accepts the findings
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout SecureRepo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve the public repository
+        id: target
+        env:
+          REPOSITORY_URL: ${{ inputs.repository }}
+        run: npx tsx scripts/resolve-github-repo.ts
+
+      - name: Checkout the public repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.target.outputs.slug }}
+          path: target
+          persist-credentials: false
+
+      - name: Run the scanner and post findings
+        env:
+          TARGET_DIR: ${{ github.workspace }}/target
+          SCAN_ID: ${{ inputs.scan_id }}
+          CALLBACK_URL: ${{ inputs.callback_url }}
+          SECUREREPO_CALLBACK_SECRET: ${{ secrets.SECUREREPO_CALLBACK_SECRET }}
+        run: npx tsx scripts/report-scan.ts
+
+      - name: Post a failure when the workflow stops early
+        if: failure()
+        env:
+          SCAN_ID: ${{ inputs.scan_id }}
+          CALLBACK_URL: ${{ inputs.callback_url }}
+          SECUREREPO_CALLBACK_SECRET: ${{ secrets.SECUREREPO_CALLBACK_SECRET }}
+        run: npx tsx scripts/report-failure.ts
